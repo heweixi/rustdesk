@@ -698,6 +698,12 @@ impl Drop for CheckIfRestart {
         {
             if allow_insecure_tls_fallback_changed {
                 hbb_common::tls::reset_tls_cache();
+                if config::option2bool(
+                    config::keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK,
+                    &Config::get_option(config::keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK),
+                ) {
+                    log::warn!("SECURITY WARNING: Insecure TLS fallback enabled. TLS certificate verification will be skipped on failure, exposing connections to potential MITM attacks.");
+                }
             }
             RendezvousMediator::restart();
         }

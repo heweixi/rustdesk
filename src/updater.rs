@@ -1,5 +1,6 @@
 use crate::{common::do_check_software_update, hbbs_http::create_http_client_with_url};
 use hbb_common::{bail, config, log, ResultType};
+use sha2::{Digest, Sha256};
 use std::{
     io::Write,
     path::PathBuf,
@@ -185,6 +186,11 @@ fn check_update(manually: bool) -> ResultType<()> {
             let mut file = std::fs::File::create(&file_path)?;
             file.write_all(&file_data)?;
         }
+        // Verify integrity of the downloaded update file before execution.
+        if let Err(e) = verify_update_hash(&download_url, &file_path) {
+            log::error!("Update aborted: {}", e);
+            bail!("{}", e);
+        }
         // We have checked if the `conns` is empty before, but we need to check again.
         // No need to care about the downloaded file here, because it's rare case that the `conns` are empty
         // before the download, but not empty after the download.
@@ -282,6 +288,63 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
             file_path.display()
         );
     }
+}
+
+/// Verify the SHA256 hash of a downloaded file against a remote `.sha256` checksum file.
+/// The checksum file is expected to be at `<download_url>.sha256` and contain
+/// the hex-encoded hash (optionally followed by whitespace and filename).
+/// Returns Ok(()) if verification passes, Err if hash mismatches or cannot be fetched.
+fn verify_update_hash(download_url: &str, file_path: &PathBuf) -> ResultType<()> {
+    let hash_url = format!("{}.sha256", download_url);
+    let client = create_http_client_with_url(&hash_url);
+    let response = client.get(&hash_url).send();
+    let expected_hash = match response {
+        Ok(resp) if resp.status().is_success() => {
+            let body = resp.text()?;
+            // Format: "<hex_hash>  <filename>" or just "<hex_hash>"
+            body.split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_lowercase()
+        }
+        Ok(resp) => {
+            bail!(
+                "Update integrity check failed: could not fetch checksum file (HTTP {})",
+                resp.status()
+            );
+        }
+        Err(e) => {
+            bail!(
+                "Update integrity check failed: could not fetch checksum file: {}",
+                e
+            );
+        }
+    };
+
+    if expected_hash.len() != 64 {
+        bail!(
+            "Update integrity check failed: invalid checksum format (len={})",
+            expected_hash.len()
+        );
+    }
+
+    let file_data = std::fs::read(file_path)?;
+    let mut hasher = Sha256::new();
+    hasher.update(&file_data);
+    let actual_hash = hex::encode(hasher.finalize());
+
+    if actual_hash != expected_hash {
+        // Remove the corrupted/tampered file
+        std::fs::remove_file(file_path).ok();
+        bail!(
+            "Update integrity check failed: SHA256 mismatch (expected={}, actual={})",
+            expected_hash,
+            actual_hash
+        );
+    }
+
+    log::info!("Update file integrity verified (SHA256 OK)");
+    Ok(())
 }
 
 pub fn get_download_file_from_url(url: &str) -> Option<PathBuf> {

@@ -1020,6 +1020,9 @@ pub fn main_set_option(key: String, value: String) {
     {
         if is_allow_tls_fallback {
             hbb_common::tls::reset_tls_cache();
+            if value == "Y" {
+                log::warn!("SECURITY WARNING: Insecure TLS fallback enabled. TLS certificate verification will be skipped on failure, exposing connections to potential MITM attacks.");
+            }
         }
         set_option(key, value.clone());
         #[cfg(target_os = "android")]

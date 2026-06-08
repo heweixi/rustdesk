@@ -7,6 +7,7 @@ use hbb_common::{
     ResultType,
 };
 use serde_derive::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 use totp_rs::{Algorithm, Secret, TOTP};
 
@@ -16,6 +17,17 @@ lazy_static::lazy_static! {
 
 const ISSUER: &str = "RustDesk";
 const TAG_LOGIN: &str = "Connection";
+
+/// Derive a machine-specific encryption key for local 2FA secret storage.
+/// Uses SHA256(machine_uuid + "rustdesk-2fa-local") to produce a deterministic
+/// key tied to this machine, replacing the previous hardcoded "00" passphrase.
+fn derive_local_encryption_key() -> String {
+    let uuid = hbb_common::get_uuid();
+    let mut hasher = Sha256::new();
+    hasher.update(&uuid);
+    hasher.update(b"rustdesk-2fa-local");
+    hex::encode(hasher.finalize())
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TOTPInfo {
@@ -52,7 +64,8 @@ impl TOTPInfo {
     }
 
     pub fn into_string(&self) -> ResultType<String> {
-        let secret = encrypt_vec_or_original(self.secret.as_slice(), "00", 1024);
+        let key = derive_local_encryption_key();
+        let secret = encrypt_vec_or_original(self.secret.as_slice(), &key, 1024);
         let totp_info = TOTPInfo {
             secret,
             ..self.clone()
@@ -63,13 +76,20 @@ impl TOTPInfo {
 
     pub fn from_str(data: &str) -> ResultType<TOTP> {
         let mut totp_info = serde_json::from_str::<TOTPInfo>(data)?;
+        let key = derive_local_encryption_key();
+        // Try decryption with the machine-specific key first.
+        let (secret, success, _) = decrypt_vec_or_original(&totp_info.secret, &key);
+        if success {
+            totp_info.secret = secret;
+            return Ok(totp_info.new_totp()?);
+        }
+        // Fall back to legacy hardcoded key for migration from older versions.
         let (secret, success, _) = decrypt_vec_or_original(&totp_info.secret, "00");
         if success {
             totp_info.secret = secret;
             return Ok(totp_info.new_totp()?);
-        } else {
-            bail!("decrypt_vec_or_original 2fa secret failed")
         }
+        bail!("decrypt_vec_or_original 2fa secret failed")
     }
 }
 
@@ -121,7 +141,8 @@ pub struct TelegramBot {
 
 impl TelegramBot {
     fn into_string(&self) -> ResultType<String> {
-        let token = encrypt_vec_or_original(self.token_str.as_bytes(), "00", 1024);
+        let key = derive_local_encryption_key();
+        let token = encrypt_vec_or_original(self.token_str.as_bytes(), &key, 1024);
         let bot = TelegramBot {
             token,
             ..self.clone()
@@ -145,6 +166,14 @@ impl TelegramBot {
             return Ok(None);
         }
         let mut bot = serde_json::from_str::<TelegramBot>(&data)?;
+        let key = derive_local_encryption_key();
+        // Try decryption with the machine-specific key first.
+        let (token, success, _) = decrypt_vec_or_original(&bot.token, &key);
+        if success {
+            bot.token_str = String::from_utf8(token)?;
+            return Ok(Some(bot));
+        }
+        // Fall back to legacy hardcoded key for migration from older versions.
         let (token, success, _) = decrypt_vec_or_original(&bot.token, "00");
         if success {
             bot.token_str = String::from_utf8(token)?;
