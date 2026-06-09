@@ -1,3 +1,6 @@
 [submodule "libs/hbb_common"]
 	path = libs/hbb_common
-	url = https://github.com/rustdesk/hbb_common
+	# TODO: 改为你自己的私有 hbb_common 仓库地址
+	# 例如: https://github.com/YOUR_USERNAME/hbb_common.git
+	# 注意: 私有仓库需要 GitHub Actions 使用 PAT 或 SSH 部署密钥认证
+	url = https://github.com/heweixi/hbb_common

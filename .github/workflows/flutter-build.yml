@@ -1,5 +1,25 @@
 name: Build the flutter version of the RustDesk
 
+# =============================================================================
+# 🔧 自定义编译说明（私有化 Fork）
+# =============================================================================
+# 要使用此 workflow 编译你自己的 RustDesk 客户端，需：
+#
+# 1. 在仓库 Settings > Secrets and variables > Actions 中设置以下 Secrets:
+#    - RS_PUB_KEY:  你的 hbbs 服务器公钥（id_ed25519.pub 文件内容，base64）
+#    - RENDEZVOUS_SERVER: 你的 hbbs 服务器地址（如 "hbbs.example.com"）
+#    - API_SERVER:  你的版本检查 API 地址（可选，默认使用 rustdesk.com）
+#
+# 2. 修改 .gitmodules 中的 libs/hbb_common URL → 你的私有 hbb_common 仓库
+#
+# 3. （可选）以下外部资源默认从 rustdesk 官方发布页下载。
+#    如需完全自包含，请将这些 URL 改为你自己的镜像/仓库：
+#    - github.com/rustdesk/engine/releases        → 自定义 Flutter Engine
+#    - github.com/rustdesk/hbb_common/releases     → 打印机驱动
+#    - github.com/rustdesk-org/rdev/releases       → usbmmidd_v2 (虚拟显示器)
+#    - github.com/rustdesk/doc.rustdesk.com/releases → Web 控制台依赖
+# =============================================================================
+
 on:
   workflow_call:
     inputs:
@@ -46,6 +66,11 @@ env:
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
+  # 自定义服务器配置（编译时覆盖 hbb_common 中的默认值）
+  # 在仓库 Settings > Secrets and variables > Actions 中设置以下值
+  RS_PUB_KEY: "${{ secrets.RS_PUB_KEY }}"
+  RENDEZVOUS_SERVER: "${{ secrets.RENDEZVOUS_SERVER }}"
+  API_SERVER: "${{ secrets.API_SERVER }}"
 
 jobs:
   generate-bridge:
